@@ -1,7 +1,6 @@
 local screen = component.proxy(component.list("screen")())
 local gpu = component.proxy(component.list("gpu")())
 local keeb = component.proxy(component.list("keyboard")())
-local fs = nil
 screenX = 1 -- cursor pos
 screenY = 1
 screenW = 0
@@ -63,6 +62,32 @@ function print(out)
     esccodeparse:case(c)
   end
 end
+
+local libvfs = {
+  created = {},
+  create = function (self)
+    addr = math.random()
+    while self.created[addr] ~= nil do addr = math.random() end
+    self.created[addr] = {}
+    return addr
+  end,
+  mount = function (self, vfsaddr, mountaddr, mountpoint, notanfs)
+    if self.created[vfsaddr] == nil then return nil end
+    if mountaddr == nil then return nil end
+    if mountpoint == nil then return nil end
+    if component.proxy(mountaddr).spaceUsed() == nil and not notanfs then return nil end --check if its an fs
+    self.created[vfsaddr][mountpoint] = mountaddr
+    return true
+  end,
+}
+
+function panic (errormsg)
+  print("\n\apanic!!!: \a")
+  print(errormsg.."\a\n\a")
+  debug.traceback()
+  while 1 do os.sleep(9999) end
+end
+
 do -- setup
   if not gpu.bind(screen.address) then
     error("Failed to bind to screen")
@@ -79,7 +104,24 @@ do -- setup
   local gpucurdepth = math.floor(gpu.getDepth())
   local freeram = computer.freeMemory()
   print(" "..tostring(totalram).." byte RAM system; "..tostring(freeram).." bytes free.\n Maximum color depth: "..tostring(gpumaxdepth).."; Current color depth: "..tostring(gpucurdepth)..".\n")
-
+  print("\t- Loading the VFS... ")
+  local progressbar1x, progressbar1y = screenX, screenY
+  print("\n\t\t- Creating the VFS... ")
+  local vfs = libvfs:create()
+  if vfs == nil then print("FAILED"); panic("failed to make vfs!") end
+  print("OK!\n")
+  print("\t\t- Mounting boot disk... ")
+  if not libvfs:mount(vfs, computer.getBootAddress(), "/") then print("FAILED"); panic("failed to mount boot disk!") end
+  print("OK!\n")
+  print("\t\t- Mounting tmpfs... ")
+  if not libvfs:mount(vfs, computer.tmpAddress(), "/tmp") then print("FAILED"); panic("failed to mount tmpfs!") end
+  print("OK!\n")
+  print("\t\t- Loading devfs... ")
+  local progressbar2x, progressbar2y = screenX, screenY
+  print("\n\t\t\t- Creating devfs... ")
+  local devfs = libvfs:create()
+  if devfs == nil then print("FAILED"); panic("failed to make devfs!") end
+  print("OK!\n")
 end
 while 1 do -- main
   os.sleep(0.5)
